@@ -1,0 +1,56 @@
+{% extends "base.html" %}
+{% block title %}Dashboard · Subdomain Watch{% endblock %}
+{% block content %}
+<section class="hero">
+  <div><p class="eyebrow">THREAT INTELLIGENCE WORKSPACE</p><h1>Hostname monitoring dashboard</h1><p class="lead">Discover lookalike hostnames, inspect explainable scoring, and record analyst decisions.</p></div>
+  <div class="hero-chip"><span class="pulse"></span> Local-only MVP</div>
+</section>
+<section class="metrics">
+  <article class="metric"><span>Monitored brands</span><strong>{{ metrics.brands }}</strong></article>
+  <article class="metric"><span>Candidate hostnames</span><strong>{{ metrics.hosts }}</strong></article>
+  <article class="metric"><span>Awaiting review</span><strong>{{ metrics.review }}</strong></article>
+  <article class="metric"><span>High-priority score</span><strong>{{ metrics.high }}</strong></article>
+</section>
+<div class="two-column">
+  <section class="panel">
+    <div class="panel-heading"><div><p class="eyebrow">STEP 1</p><h2>Add a monitored brand</h2></div></div>
+    <form action="/brands" method="post" class="form-stack">
+      <label>Brand / organization name<input name="name" placeholder="Acme Demo" required minlength="2" maxlength="100"></label>
+      <label>Official domains <span class="hint">Comma-separated</span><input name="official_domains" placeholder="acme.example, acme.test" required></label>
+      <label>Extra brand keywords <span class="hint">Optional, comma-separated</span><input name="keywords" placeholder="my portal, product name"></label>
+      <button class="button primary" type="submit">Add brand</button>
+    </form>
+  </section>
+  <section class="panel">
+    <div class="panel-heading"><div><p class="eyebrow">STEP 2</p><h2>Add a candidate</h2></div></div>
+    {% if brands %}
+    <form action="/hosts" method="post" class="form-stack">
+      <label>Associated brand<select name="brand_id" required>{% for brand in brands %}<option value="{{ brand.id }}">{{ brand.name }}</option>{% endfor %}</select></label>
+      <label>Hostname<input name="hostname" placeholder="acme-login.provider.example" required></label>
+      <label>Source label<input name="source_note" value="manual" maxlength="80"></label>
+      <button class="button primary" type="submit">Score candidate</button>
+    </form>
+    {% else %}<p class="empty-note">Add a brand first. Use fictional domains such as <code>acme.example</code> while testing.</p>{% endif %}
+  </section>
+</div>
+<section class="panel">
+  <div class="panel-heading"><div><p class="eyebrow">PASSIVE DISCOVERY</p><h2>Certificate Transparency lookup</h2><p class="muted">Queries the public crt.sh metadata endpoint for brand tokens. It does not connect to discovered sites.</p></div></div>
+  {% if brands %}<div class="brand-list">{% for brand in brands %}<div class="brand-row"><div class="brand-info"><strong>{{ brand.name }}</strong><span>{{ brand.official_domains | join(', ') }}</span></div><form method="post" action="/brands/{{ brand.id }}/discover"><button class="button secondary" type="submit">Discover via CT</button></form></div>{% endfor %}</div>{% else %}<p class="empty-note">No brand seeds configured yet.</p>{% endif %}
+</section>
+<section class="panel">
+  <div class="panel-heading results-heading"><div><p class="eyebrow">CANDIDATE QUEUE</p><h2>Findings</h2></div><a class="button secondary" href="/export.csv">Download CSV</a></div>
+  <form action="/" method="get" class="filters">
+    <input name="q" value="{{ q }}" placeholder="Search hostname, domain, or brand" aria-label="Search findings">
+    <select name="tier" aria-label="Filter by score tier"><option value="">All tiers</option><option value="high" {% if tier == 'high' %}selected{% endif %}>High</option><option value="review" {% if tier == 'review' %}selected{% endif %}>Review</option><option value="low" {% if tier == 'low' %}selected{% endif %}>Low</option></select>
+    <select name="verdict" aria-label="Filter by analyst verdict"><option value="">All verdicts</option>{% for value,label in verdict_options %}<option value="{{ value }}" {% if verdict == value %}selected{% endif %}>{{ label }}</option>{% endfor %}</select>
+    <button class="button secondary" type="submit">Filter</button><a class="text-link" href="/">Clear</a>
+  </form>
+  {% if hosts %}
+  <div class="table-wrap"><table><thead><tr><th>Hostname</th><th>Brand</th><th>Score</th><th>Tier</th><th>Source</th><th>Verdict</th><th>Last seen (UTC)</th><th></th></tr></thead><tbody>
+  {% for host in hosts %}<tr><td class="host-cell"><a href="/hosts/{{ host.id }}">{{ host.hostname }}</a><small>{{ host.registered_domain }}</small></td><td>{{ host.brand_name }}</td><td><div class="score-cell"><strong>{{ host.score }}</strong><div class="score-track"><span style="width: {{ host.score }}%"></span></div></div></td><td><span class="tier tier-{{ host.tier }}">{{ host.tier }}</span></td><td>{{ host.source }}</td><td>{{ host.verdict.replace('_', ' ') }}</td><td class="date-cell">{{ host.last_seen[:19].replace('T',' ') }}</td><td><a class="text-link" href="/hosts/{{ host.id }}">Review →</a></td></tr>{% endfor %}
+  </tbody></table></div>
+  {% else %}<div class="empty-state"><div class="empty-icon">⌕</div><strong>No findings yet</strong><p>Add a manual candidate or run a CT lookup for a monitored brand.</p></div>{% endif %}
+  <p class="small-note">Showing up to 250 findings. Scores are generated by baseline rules and do not include page-content or reputation analysis yet.</p>
+</section>
+<section class="disclaimer"><strong>Safe-use reminder:</strong> Use the CT lookup responsibly and within its terms. A certificate record, shared-hosting suffix, or brand-like name is not proof of phishing. Do not submit credentials or automatically report/block a site based only on this score.</section>
+{% endblock %}

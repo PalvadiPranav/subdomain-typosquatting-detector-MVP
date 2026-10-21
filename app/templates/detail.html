@@ -1,0 +1,29 @@
+{% extends "base.html" %}
+{% block title %}Review {{ host.hostname }} · Subdomain Watch{% endblock %}
+{% block content %}
+<div class="backline"><a class="text-link" href="/">← Back to findings</a></div>
+<section class="detail-hero">
+  <div><p class="eyebrow">CANDIDATE DETAIL · #{{ host.id }}</p><h1 class="hostname-title">{{ host.hostname }}</h1><p class="muted">Brand: <strong>{{ host.brand_name }}</strong> · Registrable domain: <code>{{ host.registered_domain }}</code></p></div>
+  <div class="score-large"><strong>{{ host.score }}</strong><span>/ 100</span><div><span class="tier tier-{{ host.tier }}">{{ host.tier }} priority</span></div></div>
+</section>
+<div class="two-column detail-columns">
+  <section class="panel">
+    <div class="panel-heading"><div><p class="eyebrow">EXPLAINABILITY</p><h2>Score breakdown</h2></div></div>
+    <div class="signal-list">{% for signal in host.signals %}<div class="signal-row"><div class="signal-main"><strong>{{ signal.name }}</strong><p>{{ signal.reason }}</p></div><span class="points {% if signal.points < 0 %}negative{% elif signal.points > 0 %}positive{% endif %}">{% if signal.points > 0 %}+{% endif %}{{ signal.points }}</span></div>{% endfor %}</div>
+    <div class="model-note">This is a rules-only triage score, not a probability. Content matching, DNS/TLS enrichment, and threat-reputation signals are not implemented in this MVP.</div>
+  </section>
+  <section class="panel">
+    <div class="panel-heading"><div><p class="eyebrow">ANALYST WORKFLOW</p><h2>Record a verdict</h2></div></div>
+    <p class="muted">A human should review the evidence before escalating a finding. Record why a hostname is legitimate or suspicious.</p>
+    <form action="/hosts/{{ host.id }}/verdict" method="post" class="form-stack">
+      <label>Verdict<select name="verdict" required>{% for value,label in verdict_options %}<option value="{{ value }}" {% if host.verdict == value %}selected{% endif %}>{{ label }}</option>{% endfor %}</select></label>
+      <label>Analyst notes<textarea name="notes" rows="6" maxlength="5000" placeholder="Evidence reviewed, reason for verdict, follow-up needed...">{{ host.notes }}</textarea></label>
+      <button class="button primary" type="submit">Save verdict</button>
+    </form>
+  </section>
+</div>
+<section class="panel metadata-panel">
+  <div class="panel-heading"><div><p class="eyebrow">OBSERVATION METADATA</p><h2>Recorded details</h2></div></div>
+  <dl class="metadata-grid"><div><dt>Discovery source</dt><dd>{{ host.source }}</dd></div><div><dt>First seen (UTC)</dt><dd>{{ host.first_seen }}</dd></div><div><dt>Last seen (UTC)</dt><dd>{{ host.last_seen }}</dd></div><div><dt>Last updated (UTC)</dt><dd>{{ host.updated_at }}</dd></div><div><dt>Configured official domains</dt><dd>{{ host.official_domains | join(', ') }}</dd></div><div><dt>Analyst verdict</dt><dd>{{ host.verdict.replace('_', ' ') }}</dd></div></dl>
+</section>
+{% endblock %}
