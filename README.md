@@ -1,3 +1,4 @@
+[README.md](https://github.com/user-attachments/files/33785173/README.md)
 # Subdomain Typosquatting Detection Platform
 
 **Status:** Working MVP · **Version:** 0.1.0 · **Purpose:** Defensive cybersecurity / brand-protection research
@@ -24,7 +25,7 @@ A local web application to monitor brand seeds, collect candidate hostnames from
 - FastAPI + Uvicorn
 - Jinja2 templates and plain CSS
 - SQLite (built into Python)
-- `httpx` for the CT metadata API
+- `httpx2` for the CT metadata API
 - `tldextract` with its bundled PSL snapshot (no runtime PSL download)
 - A conservative built-in fallback is included for offline environments where `tldextract` is unavailable; the fallback is not a complete Public Suffix List.
 - `pytest`
@@ -167,51 +168,56 @@ The total is clamped to 0–100. Tiers are high ≥80, review 50–79, and low <
 
 The dashboard makes a small number of token searches against the public `crt.sh` JSON endpoint. Results are deduplicated, normalized, filtered for relevance, and saved. The app does not connect to the hostnames returned by CT. CT coverage has limitations: a lack of results does not mean a hostname does not exist, and CT presence is not evidence of phishing. The first-pass token search may miss misspellings where the brand token itself was changed; scoped permutation discovery is a future module.
 
-## Roadmap for the next releases
+## What I'd like to add next
 
-### v0.2 — Enrichment
+This first version is intentionally small. I want to make sure the discovery and scoring work reliably before adding more data sources or automatic analysis. These are the next improvements I'd like to work on; the version numbers are rough milestones, not release promises.
 
-- Add passive DNS via a provider account that you are permitted to use.
-- Add DNS records and TLS metadata, with timestamps and source provenance.
-- If page metadata is collected later, run it in an isolated worker with tight timeouts, response-size caps, egress restrictions, redirect revalidation, and blocks for loopback/private/link-local/metadata IPs.
-- Add favicon/content fingerprints only after safe collection and retention controls are in place.
+### v0.2 — Add more useful evidence
 
-### v0.3 — Improved discovery
+- Add DNS records and TLS certificate details, including when each observation was collected.
+- Connect to a passive-DNS provider if I have access to a suitable account and its terms allow this use.
+- If I add page fetching, run it in an isolated worker. It will need strict timeouts, response-size limits, restricted network access, and checks on every redirect so it cannot reach local or private services.
+- Look at favicon and page-content fingerprints once collection and data-retention rules are in place.
 
-- Add bounded typo permutations (deletion, insertion, substitution, adjacent transposition, and selected homoglyphs).
-- Query approved sources using explicit request budgets and backoff.
-- Improve provider discovery using evidence, confidence decay, and analyst review instead of treating the PSL as a complete reseller directory.
+### v0.3 — Find more lookalike hostnames
 
-### v0.4 — Evaluation and ML
+- Generate a limited number of likely typos, such as missing, extra, swapped, or substituted characters.
+- Keep queries rate-limited and use sources whose terms permit this kind of lookup.
+- Improve the list of hosting and subdomain providers using observed evidence and analyst review. The Public Suffix List is useful, but it is not a complete reseller directory.
 
-- Build a labeled dataset with documented collection dates and label rationale.
-- Compare hostname-only scoring with content and infrastructure features.
-- Evaluate precision, recall, false-positive rate per tier, missing-data rate, and lead time against an explicit baseline.
-- Train a classifier only after enough reviewed data exists; use a time-based/grouped holdout to avoid near-duplicate leakage.
-- Keep score explanations and model/rule versions visible.
+### v0.4 — Test how well it works
 
-## Safety and privacy notes
+- Put together a labeled dataset and record when and why each example was labeled.
+- Compare the current hostname-only approach with versions that include content and infrastructure evidence.
+- Report precision, recall, false positives, missing data, and discovery delay against a clearly described baseline.
+- Consider a small machine-learning model only after there are enough reviewed examples. Keep related hostnames together when splitting the data so near-duplicates do not make the results look better than they are.
 
-- This app is designed to run locally. It has **no authentication or CSRF protection** and must not be exposed to the internet as-is. Bind to `127.0.0.1`; do not use `--host 0.0.0.0` for this version.
-- Use it only for defensive monitoring of brands you own or are authorized to monitor.
-- Do not enter credentials into candidate sites, submit forms, exploit sites, or automatically block/report a hostname based solely on a heuristic score.
-- Review source/provider terms and rate limits before using live discovery.
-- The database may contain sensitive investigation notes and observed hostnames. It is deliberately excluded from Git by `.gitignore`.
+## Safety and privacy
 
-## Put it on GitHub (your first Git workflow)
+For now, this project is meant to run on my own machine. It does not have authentication or CSRF protection, so it should not be exposed as a public web service. Keep the server bound to `127.0.0.1`; don't run this version with `--host 0.0.0.0`.
 
-### A. Inspect files before committing
+A few other things to keep in mind:
 
-From the project root:
+- Use the tool for defensive monitoring of brands you own or have permission to assess.
+- Don't enter credentials into candidate sites, submit forms, or try to exploit them.
+- Don't block or report a hostname just because its score is high. Check the evidence first.
+- Check the terms and rate limits of any discovery provider before using it.
+- The local database can contain investigation notes and hostnames, so it stays out of Git. The `.gitignore` file is there to help prevent it from being uploaded by accident.
+
+## Putting the project on GitHub
+
+If this project is already in a local Git repository, you can skip the `git init` step. Before committing anything, check what Git is about to include:
 
 ```bash
 git status --short
 cat .gitignore
 ```
 
-Make sure no `data/app.db`, `.env`, API keys, passwords, personal investigation notes, or screenshots of sensitive data are being committed. The supplied `.gitignore` excludes local databases and environment files.
+Make sure the output does not include `data/app.db`, `.env` files, API keys, passwords, or private investigation notes.
 
-### B. Initialize Git locally
+### If this is the first commit
+
+Run these commands from the project folder. If you've already made a commit, don't repeat this section just to update the README.
 
 ```bash
 git init
@@ -221,62 +227,80 @@ git commit -m "Build subdomain typosquatting detection MVP"
 git branch -M main
 ```
 
-If Git asks you to set an identity, configure your public commit author details:
+If Git asks who you are, set the name and email you want attached to your commits:
 
 ```bash
 git config --global user.name "Your Name"
-git config --global user.email "your-public-or-noreply-email@example.com"
+git config --global user.email "your-email@example.com"
 ```
 
-Then rerun the commit command. Use an email you are comfortable associating with commits; GitHub provides a no-reply email option in account settings.
+You can use GitHub's no-reply email if you don't want your personal email shown in public commit details.
 
-### C. Create an empty repository on GitHub
+### Connect to GitHub
 
-1. Sign in to GitHub and select **New repository**.
-2. Name it `subdomain-typosquatting-detector`.
-3. Add a short description, for example: `Defensive subdomain typosquatting detection MVP with CT discovery and explainable scoring`.
-4. Choose Public if you want it visible in your portfolio, or Private while developing.
-5. Do **not** initialize it with a README, license, or `.gitignore` because this project already has them.
-6. Create the repository and copy its HTTPS repository URL.
+Create a repository on GitHub named `subdomain-typosquatting-detector`. If the code is already on your computer, leave the new GitHub repository empty—don't create another README or license there.
 
-### D. Connect the local folder and push
+Copy the HTTPS URL from the repository's **Code** button. Then check whether a remote has already been configured:
 
-Replace `YOUR-USERNAME` with your GitHub username:
+```bash
+git remote -v
+```
+
+If there is no `origin`, add it:
 
 ```bash
 git remote add origin https://github.com/YOUR-USERNAME/subdomain-typosquatting-detector.git
+```
+
+If `origin` already exists but points to the wrong URL, update it instead:
+
+```bash
+git remote set-url origin https://github.com/YOUR-USERNAME/subdomain-typosquatting-detector.git
+```
+
+Replace the example URL with the exact URL for your own repository. GitHub does not accept your account password for Git pushes over HTTPS. Sign in using GitHub CLI (`gh auth login`), SSH, or another supported authentication method; never save an access token in this README or in your source code.
+
+Once the URL and authentication are correct, push the branch:
+
+```bash
 git push -u origin main
 ```
 
-If you copied a different repository URL from GitHub, use that exact URL instead. Follow GitHub's current authentication prompt; do not paste a password or token into source files. After the push, refresh the repository page and confirm that the README and `app/` files appear.
+### Updating the project later
 
-### E. Make future updates
-
-After editing files and testing:
+After changing a file, run the tests and check the changes before committing:
 
 ```bash
 source .venv/bin/activate
 pytest -q
 git status --short
-git add app tests README.md
-git commit -m "Add hostname enrichment feature"
+```
+
+If you only changed this README, you can commit just that file:
+
+```bash
+git add README.md
+git commit -m "Make README clearer"
 git push
 ```
 
-Only include the folders/files you changed. Never use `git add .` blindly until you understand the output of `git status --short`.
+If you changed application code or tests too, stage those files as well. I avoid using `git add .` without checking `git status` first, because it can include files I didn't mean to publish.
 
-## Portfolio-ready repository checklist
+## Before showing this in a portfolio
 
-- [ ] Add screenshots from fictional/demo data only.
-- [ ] Include a short architecture diagram and a sample report export.
-- [ ] Record test results and known limitations.
-- [ ] Include a labeled, permitted evaluation dataset or clear instructions to reproduce it.
-- [ ] Add a release tag after a stable milestone: `git tag v0.1.0 && git push origin v0.1.0`.
-- [ ] Do not claim full phishing detection or production readiness while key evidence sources are not implemented.
+The project is still an MVP, so I want the repository to show both what works and what still needs work. Before presenting it as a finished project, I plan to:
 
-## Reference documentation
+- Add screenshots using fictional demo data.
+- Include a simple architecture diagram and an example CSV export.
+- Keep the test results and known limitations up to date.
+- Explain how to reproduce the evaluation and where the test data came from.
+- Add a release tag once a version is stable, for example: `git tag v0.1.0 && git push origin v0.1.0`.
 
-- [crt.sh JSON query examples](https://learn.secbyte.org/tools/ct-lookup-api) — CT results are discovery candidates, not proof that a hostname is live or malicious.
-- [FastAPI form data](https://fastapi.tiangolo.com/tutorial/request-forms/) — used for dashboard forms.
-- [FastAPI SQL database tutorial](https://fastapi.tiangolo.com/tutorial/sql-databases/) — background for the local persistence pattern.
-- [GitHub Docs: adding locally hosted code to GitHub](https://docs.github.com/en/migrations/importing-source-code/using-the-command-line-to-import-source-code/adding-locally-hosted-code-to-github?platform=linux) — official reference for initializing a repository and pushing an existing project.
+I won't describe it as a complete phishing-detection system while content analysis, reputation sources, and a proper evaluation are still missing.
+
+## References
+
+- [crt.sh JSON query examples](https://learn.secbyte.org/tools/ct-lookup-api) — useful for trying CT lookups; results are candidates, not proof of abuse.
+- [FastAPI form data](https://fastapi.tiangolo.com/tutorial/request-forms/) — documentation for the form handling used by the dashboard.
+- [FastAPI SQL database tutorial](https://fastapi.tiangolo.com/tutorial/sql-databases/) — background reading for database-backed FastAPI applications.
+- [GitHub Docs: adding locally hosted code to GitHub](https://docs.github.com/en/migrations/importing-source-code/using-the-command-line-to-import-source-code/adding-locally-hosted-code-to-github?platform=linux) — instructions for pushing an existing project.
