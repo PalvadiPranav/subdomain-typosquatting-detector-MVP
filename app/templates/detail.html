@@ -1,0 +1,88 @@
+{% extends "base.html" %}
+{% block title %}Review {{ host.hostname }} · Subdomain Watch{% endblock %}
+{% block content %}
+<div class="backline"><a class="text-link" href="/">← Back to findings</a></div>
+<section class="detail-hero">
+  <div><p class="eyebrow">CANDIDATE DETAIL · #{{ host.id }}</p><h1 class="hostname-title">{{ host.hostname }}</h1><p class="muted">Brand: <strong>{{ host.brand_name }}</strong> · Registrable domain: <code>{{ host.registered_domain }}</code></p></div>
+  <div class="score-large"><strong>{{ host.score }}</strong><span>/ 100</span><div><span class="tier tier-{{ host.tier }}">{{ host.tier }} priority</span></div></div>
+</section>
+<div class="two-column detail-columns">
+  <section class="panel">
+    <div class="panel-heading"><div><p class="eyebrow">EXPLAINABILITY</p><h2>Score breakdown</h2></div></div>
+    <div class="signal-list">{% for signal in host.signals %}<div class="signal-row"><div class="signal-main"><strong>{{ signal.name }}</strong><p>{{ signal.reason }}</p></div><span class="points {% if signal.points < 0 %}negative{% elif signal.points > 0 %}positive{% endif %}">{% if signal.points > 0 %}+{% endif %}{{ signal.points }}</span></div>{% endfor %}</div>
+    <div class="model-note">This is a rules-only triage score, not a probability. DNS and TLS observations are shown separately as supporting evidence and are not yet used to change the score.</div>
+  </section>
+  <section class="panel">
+    <div class="panel-heading"><div><p class="eyebrow">ANALYST WORKFLOW</p><h2>Record a verdict</h2></div></div>
+    <p class="muted">A human should review the evidence before escalating a finding. Record why a hostname is legitimate or suspicious.</p>
+    <form action="/hosts/{{ host.id }}/verdict" method="post" class="form-stack">
+      <label>Verdict<select name="verdict" required>{% for value,label in verdict_options %}<option value="{{ value }}" {% if host.verdict == value %}selected{% endif %}>{{ label }}</option>{% endfor %}</select></label>
+      <label>Analyst notes<textarea name="notes" rows="6" maxlength="5000" placeholder="Evidence reviewed, reason for verdict, follow-up needed...">{{ host.notes }}</textarea></label>
+      <button class="button primary" type="submit">Save verdict</button>
+    </form>
+  </section>
+</div>
+<section class="panel metadata-panel">
+  <div class="panel-heading"><div><p class="eyebrow">OBSERVATION METADATA</p><h2>Recorded details</h2></div></div>
+  <dl class="metadata-grid"><div><dt>Discovery source</dt><dd>{{ host.source }}</dd></div><div><dt>First seen (UTC)</dt><dd>{{ host.first_seen }}</dd></div><div><dt>Last seen (UTC)</dt><dd>{{ host.last_seen }}</dd></div><div><dt>Last updated (UTC)</dt><dd>{{ host.updated_at }}</dd></div><div><dt>Configured official domains</dt><dd>{{ host.official_domains | join(', ') }}</dd></div><div><dt>Analyst verdict</dt><dd>{{ host.verdict.replace('_', ' ') }}</dd></div></dl>
+</section>
+<section class="panel enrichment-panel">
+  <div class="panel-heading">
+    <div><p class="eyebrow">DNS + TLS ENRICHMENT</p><h2>Resolve records and inspect the certificate</h2>
+      <p class="muted">This runs DNS queries through your system resolver and makes a short TLS handshake to a public IP on port 443. It does not fetch the website or query a passive-DNS history provider.</p>
+    </div>
+    <form action="/hosts/{{ host.id }}/enrich" method="post">
+      <button class="button primary" type="submit">Run DNS + TLS checks</button>
+    </form>
+  </div>
+  {% if enrichments %}
+    {% set latest = enrichments[0] %}
+    <div class="enrichment-meta"><strong>Latest collection:</strong> {{ latest.fetched_at }} UTC<br><span>{{ latest.source_summary }}</span></div>
+    <h3 class="evidence-subtitle">DNS records</h3>
+    <div class="dns-record-list">
+      {% for record in latest['dns']['records'] %}
+      <article class="dns-record">
+        <div class="dns-record-head"><strong>{{ record['type'] }}</strong><span class="status-pill status-{{ record['status'] }}">{{ record['status'].replace('_', ' ') }}</span></div>
+        {% if record['values'] %}
+          <ul class="dns-values">{% for value in record['values'] %}<li><code>{{ value }}</code></li>{% endfor %}</ul>
+        {% else %}<p class="muted">{{ record['detail'] }}</p>{% endif %}
+        <p class="source-line">Observed: {{ record['observed_at'] }} · TTL: {% if record['ttl_seconds'] is not none %}{{ record['ttl_seconds'] }} seconds{% else %}not available{% endif %}</p>
+        <p class="source-line">Source: {{ record['source'] }}{% if record['resolver_nameservers'] %} · Resolver: {{ record['resolver_nameservers'] | join(', ') }}{% endif %}</p>
+      </article>
+      {% endfor %}
+    </div>
+    <h3 class="evidence-subtitle">TLS certificate</h3>
+    <div class="tls-card">
+      <div class="dns-record-head"><strong>{{ latest['tls']['hostname'] }}:{{ latest['tls']['port'] }}</strong><span class="status-pill status-{{ latest['tls']['status'] }}">{{ latest['tls']['status'].replace('_', ' ') }}</span></div>
+      <p class="muted">Observed: {{ latest['tls']['observed_at'] }} · Source: {{ latest['tls']['source'] }}</p>
+      {% if latest['tls']['detail'] %}<p class="tls-detail">{{ latest['tls']['detail'] }}</p>{% endif %}
+      {% if latest['tls']['certificate'] %}
+      {% set cert = latest['tls']['certificate'] %}
+      <dl class="metadata-grid tls-grid">
+        <div><dt>Connected public IP</dt><dd>{{ latest['tls']['connected_ip'] }}</dd></div>
+        <div><dt>TLS version</dt><dd>{{ latest['tls']['tls_version'] or 'Not available' }}</dd></div>
+        <div><dt>Cipher</dt><dd>{{ latest['tls']['cipher'] or 'Not available' }}</dd></div>
+        <div><dt>Subject</dt><dd>{{ cert['subject'] or 'Not provided' }}</dd></div>
+        <div><dt>Issuer</dt><dd>{{ cert['issuer'] or 'Not provided' }}</dd></div>
+        <div><dt>Serial number</dt><dd>{{ cert['serial_number'] or 'Not provided' }}</dd></div>
+        <div><dt>Valid from (UTC)</dt><dd>{{ cert['not_before_utc'] or 'Not available' }}</dd></div>
+        <div><dt>Valid until (UTC)</dt><dd>{{ cert['not_after_utc'] or 'Not available' }}</dd></div>
+        <div><dt>Days until expiry</dt><dd>{% if cert['days_until_expiry'] is not none %}{{ cert['days_until_expiry'] }}{% else %}Not available{% endif %}</dd></div>
+        <div><dt>Hostname verified</dt><dd>{{ 'Yes' if cert['hostname_verified'] else 'No' }}</dd></div>
+        <div><dt>Certificate chain verified</dt><dd>{{ 'Yes' if cert['chain_verified'] else 'No' }}</dd></div>
+        <div><dt>SHA-256 fingerprint</dt><dd class="fingerprint">{{ cert['sha256_fingerprint'] }}</dd></div>
+      </dl>
+      {% if cert['subject_alt_names'] %}<div class="san-block"><strong>Certificate DNS names</strong><p>{{ cert['subject_alt_names'] | join(', ') }}</p></div>{% endif %}
+      {% endif %}
+    </div>
+    {% if enrichments | length > 1 %}
+    <details class="history-details"><summary>Previous enrichment runs ({{ enrichments | length - 1 }})</summary>
+      {% for item in enrichments[1:] %}<div class="history-row"><strong>{{ item['fetched_at'] }}</strong><span>{{ item['source_summary'] }}</span><span>DNS: {{ item['dns']['records'] | selectattr('status', 'equalto', 'answer') | list | length }} record types with answers · TLS: {{ item['tls']['status'] }}</span></div>{% endfor %}
+    </details>
+    {% endif %}
+  {% else %}
+    <div class="empty-state"><div class="empty-icon">⌁</div><strong>No DNS/TLS observation yet</strong><p>Run the checks to save DNS answers, TTLs, resolver information, TLS details, certificate validity dates, and source timestamps.</p></div>
+  {% endif %}
+  <p class="small-note">DNS answers reflect the resolver used at collection time and can vary by network. TLS inspection is limited to public addresses and port 443. Failed lookups are retained with their status; missing data is not evidence that a host is safe.</p>
+</section>
+{% endblock %}

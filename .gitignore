@@ -1,0 +1,41 @@
+# Python
+__pycache__/
+*.py[cod]
+*.pyd
+.Python
+.venv/
+venv/
+ENV/
+.pytest_cache/
+.coverage
+htmlcov/
+
+# Local environment and secrets
+.env
+.env.*
+!.env.example
+
+# Local runtime data; do not commit live host findings or databases
+data/*.db
+data/*.sqlite
+data/*.sqlite3
+
+# Editors / operating systems
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+
+# Private local test suite and test-run artifacts (not published to GitHub)
+tests/
+.pytest_cache/
+*.test-output.txt
+# Local development and private tests
+/.venv/
+/tests/
+/.github/workflows/tests.yml
+/.pytest_cache/
+/data/app.db
+.env
+__pycache__/
+*.py[cod]
