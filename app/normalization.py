@@ -1,19 +1,23 @@
 """Hostname normalization and Public Suffix List-aware domain extraction."""
 from __future__ import annotations
 
+import ipaddress
 import re
 from urllib.parse import urlsplit
 
 try:
     import tldextract
-except ImportError:  # Allows the MVP to run offline; install requirements for full PSL support.
+except ImportError:  # Allows offline use; install requirements for bundled PSL support.
     tldextract = None
 
-# Use the PSL snapshot bundled with tldextract; do not fetch an updated list at runtime.
-_EXTRACT = (tldextract.TLDExtract(suffix_list_urls=(), include_psl_private_domains=True)
-            if tldextract is not None else None)
+# Use tldextract's bundled PSL snapshot; never download a list at runtime.
+_EXTRACT = (
+    tldextract.TLDExtract(suffix_list_urls=(), include_psl_private_domains=True)
+    if tldextract is not None
+    else None
+)
 
-# Conservative fallback for offline environments without tldextract. This is not a full PSL.
+# Conservative fallback only. This is not a full Public Suffix List.
 _FALLBACK_MULTI_SUFFIXES = {
     "co.uk", "org.uk", "ac.uk", "gov.uk", "com.au", "net.au", "org.au", "edu.au",
     "co.nz", "net.nz", "org.nz", "co.in", "firm.in", "net.in", "org.in", "gen.in",
@@ -26,22 +30,39 @@ _LABEL_RE = re.compile(r"^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$")
 
 
 def normalize_hostname(value: str) -> str:
-    """Normalize a bare hostname, accepting a pasted URL but rejecting paths/IPs only by format.
+    """Normalize a hostname or pasted HTTP(S) URL to a validated ASCII hostname.
 
-    This does not establish ownership or safety. It only canonicalizes the hostname string.
+    This function only validates/canonicalizes a name. It does not establish
+    ownership, reachability, trust, or maliciousness. IP literals are rejected
+    because this application investigates hostnames rather than arbitrary IPs.
     """
     raw = (value or "").strip()
     if not raw:
         raise ValueError("Enter a hostname, for example login.example.org.")
 
     if "://" in raw:
-        parsed = urlsplit(raw)
+        try:
+            parsed = urlsplit(raw)
+        except ValueError as exc:
+            raise ValueError("Enter a valid hostname or HTTP(S) URL.") from exc
+        if parsed.scheme.lower() not in {"http", "https"}:
+            raise ValueError("Only HTTP or HTTPS URLs can be converted to hostnames.")
+        if parsed.username or parsed.password:
+            raise ValueError("URLs containing usernames or passwords are not accepted.")
+        try:
+            # Access .port to force urlsplit to validate malformed port values.
+            _ = parsed.port
+        except ValueError as exc:
+            raise ValueError("Enter a valid hostname or numeric port.") from exc
         raw = parsed.hostname or ""
     else:
         raw = raw.split("/", 1)[0]
-        # Remove an optional port from a hostname entry. IPv6 literals are not supported here.
+        # A bare hostname may include a port, but only a numeric, valid one.
         if raw.count(":") == 1:
-            raw = raw.rsplit(":", 1)[0]
+            host_part, port_part = raw.rsplit(":", 1)
+            if not port_part.isdigit() or not 1 <= int(port_part) <= 65535:
+                raise ValueError("If you include a port, it must be a number between 1 and 65535.")
+            raw = host_part
 
     raw = raw.strip().rstrip(".").lower()
     if raw.startswith("*."):
@@ -54,14 +75,24 @@ def normalize_hostname(value: str) -> str:
     except UnicodeError as exc:
         raise ValueError("The hostname could not be normalized using IDNA.") from exc
 
+    try:
+        ipaddress.ip_address(ascii_host)
+    except ValueError:
+        pass
+    else:
+        raise ValueError("Enter a hostname, not an IP address.")
+
     labels = ascii_host.split(".")
     if any(not _LABEL_RE.fullmatch(label) for label in labels):
-        raise ValueError("Hostname labels may contain letters, digits, and hyphens only; labels cannot start or end with a hyphen.")
+        raise ValueError(
+            "Hostname labels may contain letters, digits, and hyphens only; "
+            "labels cannot start or end with a hyphen."
+        )
     return ascii_host
 
 
 def registrable_domain(hostname: str) -> str:
-    """Return the PSL-aware registrable domain (including private suffix rules when known)."""
+    """Return the PSL-aware registrable domain, including known private suffixes."""
     hostname = hostname.rstrip(".").lower()
     if _EXTRACT is not None:
         result = _EXTRACT(hostname)
@@ -77,7 +108,7 @@ def registrable_domain(hostname: str) -> str:
 
 
 def is_under_domain(hostname: str, domain: str) -> bool:
-    """True when hostname is exactly domain or is a subdomain of it."""
+    """True when hostname equals a domain or is a subdomain on a label boundary."""
     host = hostname.rstrip(".").lower()
     root = domain.rstrip(".").lower()
     return host == root or host.endswith("." + root)

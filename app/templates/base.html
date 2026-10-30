@@ -3,19 +3,21 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="light">
   <title>{% block title %}Subdomain Watch{% endblock %}</title>
+  <link rel="icon" type="image/svg+xml" href="{{ url_for('static', path='/favicon.svg') }}">
   <link rel="stylesheet" href="{{ url_for('static', path='/style.css') }}">
 </head>
 <body>
   <header class="topbar">
-    <div class="brandmark"><span class="mark">SW</span><div><div class="product-name">Subdomain Watch</div><div class="product-sub">Brand protection · defensive triage</div></div></div>
+    <div class="brandmark"><span class="mark">SW</span><div><div class="product-name">Subdomain Watch</div><div class="product-sub">Brand protection · defensive triage · v{{ app_version | default('1.0.0') }}</div></div></div>
     <nav><a href="/">Dashboard</a><a href="/export.csv">Export CSV</a><a href="/health" target="_blank" rel="noopener">Health</a></nav>
   </header>
   <main class="container">
     {% if message %}<div class="flash success">{{ message }}</div>{% endif %}
     {% if error %}<div class="flash error">{{ error }}</div>{% endif %}
     {% block content %}{% endblock %}
-    <footer class="footer"><strong>Local MVP</strong> · Rules-based score is a triage aid, not a finding of maliciousness. Review evidence before acting.</footer>
+    <footer class="footer"><strong>Subdomain Watch v{{ app_version | default('1.0.0') }}</strong> · Local-only release. Scores prioritize review; they are not probabilities or findings of maliciousness. Review evidence before acting.</footer>
   </main>
 </body>
 </html>

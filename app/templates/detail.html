@@ -10,7 +10,7 @@
   <section class="panel">
     <div class="panel-heading"><div><p class="eyebrow">EXPLAINABILITY</p><h2>Score breakdown</h2></div></div>
     <div class="signal-list">{% for signal in host.signals %}<div class="signal-row"><div class="signal-main"><strong>{{ signal.name }}</strong><p>{{ signal.reason }}</p></div><span class="points {% if signal.points < 0 %}negative{% elif signal.points > 0 %}positive{% endif %}">{% if signal.points > 0 %}+{% endif %}{{ signal.points }}</span></div>{% endfor %}</div>
-    <div class="model-note">This is a rules-only triage score, not a probability. DNS and TLS observations are shown separately as supporting evidence and are not yet used to change the score.</div>
+    <div class="model-note">Scoring model {{ scoring_version }} uses heuristic thresholds: low 0–{{ review_threshold - 1 }}, review {{ review_threshold }}–{{ high_threshold - 1 }}, high {{ high_threshold }}–100. This is a triage priority, not a probability. DNS/TLS, page content, and reputation evidence are not yet included in the score.</div>
   </section>
   <section class="panel">
     <div class="panel-heading"><div><p class="eyebrow">ANALYST WORKFLOW</p><h2>Record a verdict</h2></div></div>
@@ -24,7 +24,7 @@
 </div>
 <section class="panel metadata-panel">
   <div class="panel-heading"><div><p class="eyebrow">OBSERVATION METADATA</p><h2>Recorded details</h2></div></div>
-  <dl class="metadata-grid"><div><dt>Discovery source</dt><dd>{{ host.source }}</dd></div><div><dt>First seen (UTC)</dt><dd>{{ host.first_seen }}</dd></div><div><dt>Last seen (UTC)</dt><dd>{{ host.last_seen }}</dd></div><div><dt>Last updated (UTC)</dt><dd>{{ host.updated_at }}</dd></div><div><dt>Configured official domains</dt><dd>{{ host.official_domains | join(', ') }}</dd></div><div><dt>Analyst verdict</dt><dd>{{ host.verdict.replace('_', ' ') }}</dd></div></dl>
+  <dl class="metadata-grid"><div><dt>Discovery source</dt><dd>{{ host.source }}</dd></div><div><dt>First seen (UTC)</dt><dd>{{ host.first_seen }}</dd></div><div><dt>Last seen (UTC)</dt><dd>{{ host.last_seen }}</dd></div><div><dt>Last updated (UTC)</dt><dd>{{ host.updated_at }}</dd></div><div><dt>Configured official domains</dt><dd>{{ host.official_domains | join(', ') }}</dd></div><div><dt>Analyst verdict</dt><dd>{{ host.verdict.replace('_', ' ') }}</dd></div><div><dt>Scoring model version</dt><dd>{{ host.scoring_version }}</dd></div></dl>
 </section>
 <section class="panel enrichment-panel">
   <div class="panel-heading">

@@ -5,12 +5,13 @@ import csv
 from contextlib import asynccontextmanager
 import io
 import json
+import ipaddress
 from datetime import datetime, timezone
 from pathlib import Path
-from urllib.parse import urlencode
+from urllib.parse import urlencode, urlsplit
 
 from fastapi import FastAPI, Form, HTTPException, Request
-from fastapi.responses import HTMLResponse, RedirectResponse, Response
+from fastapi.responses import HTMLResponse, PlainTextResponse, RedirectResponse, Response
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 
@@ -18,25 +19,110 @@ from .database import connect, init_db
 from .discovery import discover_ct_candidates
 from .enrichment import enrich_hostname
 from .normalization import normalize_hostname, registrable_domain
-from .scoring import score_hostname
+from .scoring import HIGH_THRESHOLD, REVIEW_THRESHOLD, score_hostname
+from .version import APP_VERSION, SCORING_VERSION
 
 APP_DIR = Path(__file__).resolve().parent
+
+
+def rescore_outdated_candidates() -> int:
+    """Recalculate stored candidates when the rules model changes between releases."""
+    updated = 0
+    with connect() as db:
+        rows = db.execute("""
+            SELECT h.id, h.hostname, h.source, h.scoring_version,
+                   b.name AS brand_name, b.official_domains_json, b.keywords_json
+            FROM hosts h JOIN brands b ON b.id = h.brand_id
+            WHERE h.scoring_version != ?
+        """, (SCORING_VERSION,)).fetchall()
+        timestamp = now_iso()
+        for row in rows:
+            result = score_hostname(
+                row["hostname"], row["brand_name"],
+                json.loads(row["official_domains_json"]), json.loads(row["keywords_json"]), row["source"],
+            )
+            db.execute("""UPDATE hosts SET registered_domain=?, score=?, tier=?, breakdown_json=?,
+                         scoring_version=?, updated_at=? WHERE id=?""",
+                       (result["registered_domain"], result["score"], result["tier"],
+                        json.dumps(result["signals"]), SCORING_VERSION, timestamp, row["id"]))
+            updated += 1
+    return updated
 
 
 @asynccontextmanager
 async def lifespan(application: FastAPI):
     init_db()
+    rescore_outdated_candidates()
     yield
 
 
 app = FastAPI(
     title="Subdomain Typosquatting Detection Platform",
-    description="Local defensive MVP for CT discovery, explainable triage, analyst verdicts and exports.",
-    version="0.2.0",
+    description="Local-only defensive hostname triage with CT discovery, DNS/TLS evidence, explainable scoring, analyst review, and CSV export.",
+    version=APP_VERSION,
     lifespan=lifespan,
 )
 app.mount("/static", StaticFiles(directory=str(APP_DIR / "static")), name="static")
 templates = Jinja2Templates(directory=str(APP_DIR / "templates"))
+
+
+@app.middleware("http")
+async def local_only_and_security_headers(request: Request, call_next):
+    """Keep this desktop-oriented tool loopback-only, even if misbound to 0.0.0.0.
+
+    The test clients named by Starlette are allowed for automated local checks.
+    This is defense-in-depth, not a replacement for authentication if the app is
+    ever redesigned for multi-user or remote deployment.
+    """
+    host = (request.url.hostname or "").lower()
+    allowed_hosts = {"127.0.0.1", "localhost", "::1", "testserver", "testclient"}
+    if host not in allowed_hosts:
+        response = PlainTextResponse("This application only supports localhost access.", status_code=400)
+        return _add_security_headers(response)
+
+    client_host = request.client.host if request.client else ""
+    if client_host not in {"testclient", "localhost"}:
+        try:
+            remote_ip = ipaddress.ip_address(client_host)
+        except ValueError:
+            remote_ip = None
+        if remote_ip is None or not remote_ip.is_loopback:
+            response = PlainTextResponse("Remote access is disabled for this local application.", status_code=403)
+            return _add_security_headers(response)
+
+    # Modern browsers send Origin for same-origin form POSTs. If a browser or
+    # client supplies Origin/Referer, reject cross-origin state-changing requests.
+    if request.method in {"POST", "PUT", "PATCH", "DELETE"}:
+        source = request.headers.get("origin") or request.headers.get("referer")
+        if source:
+            try:
+                parsed = urlsplit(source)
+            except ValueError:
+                parsed = None
+            request_host = request.headers.get("host", "").lower()
+            if (parsed is None or parsed.scheme not in {"http", "https"}
+                    or parsed.netloc.lower() != request_host):
+                response = PlainTextResponse("Cross-origin state-changing request blocked.", status_code=403)
+                return _add_security_headers(response)
+
+    response = await call_next(request)
+    return _add_security_headers(response)
+
+
+def _add_security_headers(response):
+    response.headers.setdefault("X-Content-Type-Options", "nosniff")
+    response.headers.setdefault("X-Frame-Options", "DENY")
+    response.headers.setdefault("Referrer-Policy", "no-referrer")
+    response.headers.setdefault("Permissions-Policy", "camera=(), microphone=(), geolocation=()")
+    response.headers.setdefault(
+        "Content-Security-Policy",
+        "default-src 'self'; script-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net; "
+        "style-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net; "
+        "img-src 'self' data: https://fastapi.tiangolo.com; connect-src 'self'; form-action 'self'; "
+        "base-uri 'self'; frame-ancestors 'none'; object-src 'none'",
+    )
+    response.headers.setdefault("Cache-Control", "no-store")
+    return response
 
 VERDICTS = [
     ("unreviewed", "Unreviewed"),
@@ -74,17 +160,17 @@ def save_candidate(db, brand: dict, hostname: str, source: str) -> tuple[int, bo
     timestamp = now_iso()
     existing = db.execute("SELECT id FROM hosts WHERE brand_id = ? AND hostname = ?", (brand["id"], hostname)).fetchone()
     if existing:
-        db.execute("""UPDATE hosts SET registered_domain=?, source=?, score=?, tier=?, breakdown_json=?,
+        db.execute("""UPDATE hosts SET registered_domain=?, source=?, score=?, tier=?, scoring_version=?, breakdown_json=?,
                     last_seen=?, updated_at=? WHERE id=?""",
-                   (result["registered_domain"], source, result["score"], result["tier"],
+                   (result["registered_domain"], source, result["score"], result["tier"], SCORING_VERSION,
                     json.dumps(result["signals"]), timestamp, timestamp, existing["id"]))
         return int(existing["id"]), False
 
     cursor = db.execute("""INSERT INTO hosts
-        (brand_id, hostname, registered_domain, source, score, tier, breakdown_json, verdict, notes,
+        (brand_id, hostname, registered_domain, source, score, tier, scoring_version, breakdown_json, verdict, notes,
          first_seen, last_seen, updated_at)
-        VALUES (?, ?, ?, ?, ?, ?, ?, 'unreviewed', '', ?, ?, ?)""",
-        (brand["id"], hostname, result["registered_domain"], source, result["score"], result["tier"],
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'unreviewed', '', ?, ?, ?)""",
+        (brand["id"], hostname, result["registered_domain"], source, result["score"], result["tier"], SCORING_VERSION,
          json.dumps(result["signals"]), timestamp, timestamp, timestamp))
     return int(cursor.lastrowid), True
 
@@ -116,12 +202,19 @@ def build_dashboard_data(q: str = "", tier: str = "", verdict: str = "") -> dict
             "high": db.execute("SELECT COUNT(*) FROM hosts WHERE tier='high'").fetchone()[0],
         }
     return {"brands": brands, "hosts": hosts, "metrics": metrics,
-            "q": q, "tier": tier, "verdict": verdict, "verdict_options": VERDICTS}
+            "q": q, "tier": tier, "verdict": verdict, "verdict_options": VERDICTS,
+            "app_version": APP_VERSION, "review_threshold": REVIEW_THRESHOLD, "high_threshold": HIGH_THRESHOLD,
+            "scoring_version": SCORING_VERSION}
 
 
 @app.get("/health")
 def health() -> dict:
-    return {"status": "ok", "version": app.version, "mode": "local-mvp"}
+    return {"status": "ok", "version": app.version, "scoring_model": SCORING_VERSION, "mode": "local-v1", "access": "loopback-only"}
+
+
+@app.get("/favicon.ico", include_in_schema=False)
+def favicon():
+    return RedirectResponse("/static/favicon.svg", status_code=307)
 
 
 @app.get("/", response_class=HTMLResponse)
@@ -137,7 +230,10 @@ def create_brand(name: str = Form(...), official_domains: str = Form(...), keywo
         return RedirectResponse("/?" + urlencode({"error": "Brand name must be between 2 and 100 characters."}), status_code=303)
     domains = []
     try:
-        for domain in parse_csvish(official_domains):
+        submitted_domains = parse_csvish(official_domains)
+        if len(submitted_domains) > 15:
+            raise ValueError("Add no more than 15 official domains per brand.")
+        for domain in submitted_domains:
             normalized = normalize_hostname(domain)
             if normalized not in domains:
                 domains.append(normalized)
@@ -146,6 +242,8 @@ def create_brand(name: str = Form(...), official_domains: str = Form(...), keywo
     if not domains:
         return RedirectResponse("/?" + urlencode({"error": "Add at least one official domain."}), status_code=303)
     keyword_list = parse_csvish(keywords)
+    if len(keyword_list) > 30 or any(len(keyword) > 60 for keyword in keyword_list):
+        return RedirectResponse("/?" + urlencode({"error": "Use up to 30 keywords, each no longer than 60 characters."}), status_code=303)
     with connect() as db:
         try:
             db.execute("INSERT INTO brands(name, official_domains_json, keywords_json, created_at) VALUES (?, ?, ?, ?)",
@@ -167,7 +265,7 @@ def create_host(brand_id: int = Form(...), hostname: str = Form(...), source_not
             clean_host = normalize_hostname(hostname)
         except ValueError as exc:
             return RedirectResponse("/?" + urlencode({"error": str(exc)}), status_code=303)
-        safe_source = source_note.strip()[:80] or "manual"
+        safe_source = " ".join(source_note.split())[:80] or "manual"
         _, created = save_candidate(db, brand, clean_host, safe_source)
     message = "Candidate added and scored." if created else "Candidate already existed; its last-seen time and score were refreshed."
     return RedirectResponse("/?" + urlencode({"message": message}), status_code=303)
@@ -221,6 +319,8 @@ def host_detail(request: Request, host_id: int, message: str = "", error: str = 
         "request": request, "host": host, "verdict_options": VERDICTS,
         "enrichments": enrichments,
         "message": message, "error": error,
+        "app_version": APP_VERSION, "scoring_version": SCORING_VERSION,
+        "review_threshold": REVIEW_THRESHOLD, "high_threshold": HIGH_THRESHOLD,
     })
 
 
@@ -258,6 +358,16 @@ def update_verdict(host_id: int, verdict: str = Form(...), notes: str = Form("")
     return RedirectResponse(f"/hosts/{host_id}?" + urlencode({"message": "Analyst verdict saved."}), status_code=303)
 
 
+def _spreadsheet_safe(value):
+    """Prefix formula-like text so opening the export in a spreadsheet is safer."""
+    if not isinstance(value, str):
+        return value
+    probe = value.lstrip(" \t\r\n")
+    if probe.startswith(("=", "+", "-", "@", "\t", "\r")):
+        return "'" + value
+    return value
+
+
 @app.get("/export.csv")
 def export_csv():
     with connect() as db:
@@ -270,8 +380,10 @@ def export_csv():
             FROM hosts h JOIN brands b ON b.id=h.brand_id ORDER BY h.score DESC""").fetchall()
     buffer = io.StringIO(newline="")
     writer = csv.writer(buffer)
+    # UTF-8 BOM helps common spreadsheet software detect non-ASCII notes correctly.
+    buffer.write("\ufeff")
     writer.writerow(["brand", "hostname", "registered_domain", "source", "score", "tier", "verdict", "notes", "first_seen_utc", "last_seen_utc", "updated_at_utc", "signal_breakdown_json", "latest_enrichment_fetched_at_utc", "latest_enrichment_source_summary", "latest_dns_json", "latest_tls_json"])
     for row in rows:
-        writer.writerow(list(row))
+        writer.writerow([_spreadsheet_safe(value) for value in list(row)])
     return Response(content=buffer.getvalue(), media_type="text/csv; charset=utf-8",
                      headers={"Content-Disposition": "attachment; filename=typosquatting_findings.csv"})

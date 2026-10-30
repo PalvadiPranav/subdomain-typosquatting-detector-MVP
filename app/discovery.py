@@ -1,6 +1,7 @@
 """Passive Certificate Transparency discovery adapter (crt.sh JSON endpoint)."""
 from __future__ import annotations
 
+import json
 import re
 from typing import Iterable
 
@@ -12,7 +13,7 @@ except ImportError:  # Keep discovery usable in older/offline environments.
 from .normalization import is_under_domain, normalize_hostname, registrable_domain
 
 CRT_SH_URL = "https://crt.sh/"
-USER_AGENT = "SubdomainTyposquattingDetector/0.2 (student defensive research; low-volume query)"
+USER_AGENT = "SubdomainTyposquattingDetector/1.0.0 (student defensive research; low-volume query)"
 
 
 def _tokens(brand_name: str, official_domains: Iterable[str]) -> list[str]:
@@ -51,18 +52,28 @@ def discover_ct_candidates(brand_name: str, official_domains: list[str], max_can
     found: set[str] = set()
     failures: list[str] = []
     queries = 0
-    with httpx.Client(timeout=httpx.Timeout(12.0, connect=5.0), follow_redirects=True,
+    with httpx.Client(timeout=httpx.Timeout(12.0, connect=5.0), follow_redirects=False,
                        headers={"User-Agent": USER_AGENT}) as client:
         for token in tokens:
             queries += 1
             try:
-                response = client.get(CRT_SH_URL, params={"q": f"%{token}%", "output": "json"})
-                response.raise_for_status()
-                # Avoid parsing an unexpectedly huge response body.
-                if len(response.content) > 8_000_000:
+                # Stream the body and stop as soon as the hard size limit is crossed,
+                # rather than downloading an unbounded response and checking afterward.
+                body_chunks: list[bytes] = []
+                total_bytes = 0
+                oversized = False
+                with client.stream("GET", CRT_SH_URL, params={"q": f"%{token}%", "output": "json"}) as response:
+                    response.raise_for_status()
+                    for chunk in response.iter_bytes(chunk_size=65_536):
+                        total_bytes += len(chunk)
+                        if total_bytes > 8_000_000:
+                            oversized = True
+                            break
+                        body_chunks.append(chunk)
+                if oversized:
                     failures.append(f"Query '{token}' returned an oversized response; skipped.")
                     continue
-                records = response.json()
+                records = json.loads(b"".join(body_chunks))
                 if not isinstance(records, list):
                     failures.append(f"Query '{token}' did not return the expected JSON array.")
                     continue

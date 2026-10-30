@@ -1,4 +1,4 @@
-# Python
+# Python runtime and bytecode
 __pycache__/
 *.py[cod]
 *.pyd
@@ -15,10 +15,10 @@ htmlcov/
 .env.*
 !.env.example
 
-# Local runtime data; do not commit live host findings or databases
-data/*.db
-data/*.sqlite
-data/*.sqlite3
+# Local runtime data; never publish investigation records
+/data/*.db
+/data/*.sqlite
+/data/*.sqlite3
 
 # Editors / operating systems
 .vscode/
@@ -26,16 +26,9 @@ data/*.sqlite3
 .DS_Store
 Thumbs.db
 
-# Private local test suite and test-run artifacts (not published to GitHub)
-tests/
-.pytest_cache/
-*.test-output.txt
-# Local development and private tests
-/.venv/
+# The automated test suite is kept in the local development workspace
 /tests/
+/requirements-dev.txt
 /.github/workflows/tests.yml
-/.pytest_cache/
-/data/app.db
-.env
-__pycache__/
-*.py[cod]
+*.test-output.txt
+/pyproject.toml

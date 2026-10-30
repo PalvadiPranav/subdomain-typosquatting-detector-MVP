@@ -44,6 +44,7 @@ def init_db() -> None:
             source TEXT NOT NULL DEFAULT 'manual',
             score INTEGER NOT NULL DEFAULT 0,
             tier TEXT NOT NULL DEFAULT 'low',
+            scoring_version TEXT NOT NULL DEFAULT '0.2.0',
             breakdown_json TEXT NOT NULL DEFAULT '[]',
             verdict TEXT NOT NULL DEFAULT 'unreviewed',
             notes TEXT NOT NULL DEFAULT '',
@@ -67,3 +68,8 @@ def init_db() -> None:
         CREATE INDEX IF NOT EXISTS idx_enrichment_host_fetched
             ON enrichment_runs(host_id, fetched_at DESC);
         """)
+        # Small, safe migration for databases created by the v0.2.0 release.
+        # Existing findings are re-scored by the app lifespan when the model version changes.
+        host_columns = {row["name"] for row in db.execute("PRAGMA table_info(hosts)").fetchall()}
+        if "scoring_version" not in host_columns:
+            db.execute("ALTER TABLE hosts ADD COLUMN scoring_version TEXT NOT NULL DEFAULT '0.2.0'")

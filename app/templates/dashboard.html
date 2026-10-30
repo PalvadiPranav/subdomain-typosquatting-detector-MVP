@@ -3,7 +3,7 @@
 {% block content %}
 <section class="hero">
   <div><p class="eyebrow">THREAT INTELLIGENCE WORKSPACE</p><h1>Hostname monitoring dashboard</h1><p class="lead">Discover lookalike hostnames, inspect explainable scoring, and record analyst decisions.</p></div>
-  <div class="hero-chip"><span class="pulse"></span> Local-only MVP</div>
+  <div class="hero-chip"><span class="pulse"></span> v{{ app_version }} · Local-only</div>
 </section>
 <section class="metrics">
   <article class="metric"><span>Monitored brands</span><strong>{{ metrics.brands }}</strong></article>
@@ -50,7 +50,7 @@
   {% for host in hosts %}<tr><td class="host-cell"><a href="/hosts/{{ host.id }}">{{ host.hostname }}</a><small>{{ host.registered_domain }}</small></td><td>{{ host.brand_name }}</td><td><div class="score-cell"><strong>{{ host.score }}</strong><div class="score-track"><span style="width: {{ host.score }}%"></span></div></div></td><td><span class="tier tier-{{ host.tier }}">{{ host.tier }}</span></td><td>{{ host.source }}</td><td>{{ host.verdict.replace('_', ' ') }}</td><td class="date-cell">{{ host.last_seen[:19].replace('T',' ') }}</td><td><a class="text-link" href="/hosts/{{ host.id }}">Review →</a></td></tr>{% endfor %}
   </tbody></table></div>
   {% else %}<div class="empty-state"><div class="empty-icon">⌕</div><strong>No findings yet</strong><p>Add a manual candidate or run a CT lookup for a monitored brand.</p></div>{% endif %}
-  <p class="small-note">Showing up to 250 findings. Scores use baseline hostname signals. DNS/TLS observations are displayed separately and do not currently change the score.</p>
+  <p class="small-note">Showing up to 250 findings. Scores use rules model {{ scoring_version }}: Low 0–{{ review_threshold - 1 }}, Review {{ review_threshold }}–{{ high_threshold - 1 }}, High {{ high_threshold }}–100. DNS/TLS observations are displayed separately and do not change the score.</p>
 </section>
-<section class="disclaimer"><strong>Safe-use reminder:</strong> Use the CT lookup responsibly and within its terms. A certificate record, shared-hosting suffix, or brand-like name is not proof of phishing. Do not submit credentials or automatically report/block a site based only on this score.</section>
+<section class="disclaimer"><strong>Safe-use reminder:</strong> This app is restricted to localhost. Use CT lookups within the provider's terms. A certificate record, shared-hosting suffix, or brand-like name is not proof of phishing. Do not submit credentials or automatically report/block a site based only on the score.</section>
 {% endblock %}
